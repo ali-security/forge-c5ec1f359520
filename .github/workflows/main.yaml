@@ -1,12 +1,12 @@
 name: Main Checks
 
 on:
-  push:
-    branches:
-      - 'main'
-  pull_request:
-    branches:
-      - '**'
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Optional mocha args to scope the node tests (e.g. --grep rsa)'
+        required: false
+        default: ''
 
 permissions: {}
 
@@ -26,6 +26,10 @@ jobs:
       uses: actions/setup-node@v6
       with:
         node-version: 16.x
+    - name: Pin npm registry to release-date time machine
+      run: |
+        npm config set registry https://time-machines-npm.sealsecurity.io/
+        npm config set //time-machines-npm.sealsecurity.io/:_authToken=2026-03-24T21:44:34.668000Z
     - run: npm install
     # FIXME: Run tests with target version until webpack is updated
     - name: Use Node.js ${{ matrix.node-version }}
@@ -33,7 +37,7 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
     - name: Run test with Node.js ${{ matrix.node-version }}
-      run: npm run test-node
+      run: npm run test-node -- ${{ inputs.test-filter }}
   test-karma:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -49,9 +53,16 @@ jobs:
       uses: actions/setup-node@v6
       with:
         node-version: ${{ matrix.node-version }}
+    - name: Pin npm registry to release-date time machine
+      run: |
+        npm config set registry https://time-machines-npm.sealsecurity.io/
+        npm config set //time-machines-npm.sealsecurity.io/:_authToken=2026-03-24T21:44:34.668000Z
     - run: npm install
     - name: Run karma tests
-      run: npm run test-karma
+      run: |
+        if [ -z "${{ inputs.test-filter }}" ]; then
+          npm run test-karma
+        fi
       env:
         BUNDLER: ${{ matrix.bundler }}
 #  lint:
@@ -71,26 +82,32 @@ jobs:
 #    - run: npm install
 #    - name: Run eslint
 #      run: npm run lint
-  coverage:
+  pack:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      matrix:
-        node-version: [16.x]
     steps:
     - uses: actions/checkout@v5
       with:
         persist-credentials: false
-    - name: Use Node.js ${{ matrix.node-version }}
+    # Install/build with 16.x like upstream's own jobs (webpack 4)
+    - name: Use Node.js 16.x
       uses: actions/setup-node@v6
       with:
-        node-version: ${{ matrix.node-version }}
+        node-version: 16.x
+    - name: Pin npm registry to release-date time machine
+      run: |
+        npm config set registry https://time-machines-npm.sealsecurity.io/
+        npm config set //time-machines-npm.sealsecurity.io/:_authToken=2026-03-24T21:44:34.668000Z
     - run: npm install
-    - name: Generate coverage report
-      run: npm run coverage-ci
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v5
+    - run: npm run build
+    - name: Use Node.js 22.x for packing
+      uses: actions/setup-node@v6
       with:
-        files: ./coverage/lcov.info
-        fail_ci_if_error: true
-        token: ${{ secrets.CODECOV_TOKEN }}
+        node-version: 22.x
+    - run: npm i -g npm@11.7.0
+    - run: npm pack
+    - uses: actions/upload-artifact@v4
+      with:
+        name: node-forge-tgz
+        path: node-forge-1.4.0.tgz
+        if-no-files-found: error
